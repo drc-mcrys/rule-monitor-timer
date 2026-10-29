@@ -1,0 +1,47 @@
+# Wakes the private Rule Monitor job every day at 7:17 AM Eastern.
+# This repo has no app code. The dispatch token is a GitHub secret.
+name: Wake Rule Monitor
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+      timezone: America/New_York
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the private daily job
+        env:
+          GH_TOKEN: ${{ secrets.RULE_MONITOR_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "Missing RULE_MONITOR_DISPATCH_TOKEN secret."
+            exit 1
+          fi
+          printf '%s\n' '{"ref":"main","inputs":{"send":"true","force":"false"}}' \
+            | gh api --method POST \
+              /repos/drc-mcrys/ABA-Insurance-Fraud/actions/workflows/rule-monitor-nonprod-daily.yml/dispatches \
+              --input -
+
+      - name: Record that the timer ran
+        if: always()
+        run: |
+          set -euo pipefail
+          date -u +%Y-%m-%dT%H:%M:%SZ > last-wake.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add last-wake.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Record the daily wake."
+          git push
